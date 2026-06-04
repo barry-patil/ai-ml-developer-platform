@@ -62,3 +62,9 @@ docker build -t gpu-cost-tracker .
 ## Why Backstage
 
 The alternative is documentation that says "here are the 8 manual steps to deploy a model." Nobody follows it consistently. Backstage turns the process into a form — the steps happen automatically and correctly every time. The catalog also gives you an inventory of every model in production with its owner, risk level, and MLflow URI, which is exactly what an EU AI Act audit needs.
+
+---
+
+## Architecture
+
+The full architecture diagram is in [architecture.drawio](./architecture.drawio). Open it at [app.diagrams.net](https://app.diagrams.net) — File → Open from Device → select the file.
