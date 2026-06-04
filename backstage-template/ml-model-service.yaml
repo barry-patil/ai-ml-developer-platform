@@ -1,0 +1,129 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: ml-model-service
+  title: ML Model Service
+  description: Scaffold a production-ready model serving service with MLflow tracking, ArgoCD deployment, and cost monitoring wired up automatically.
+  tags:
+    - ml
+    - python
+    - kubernetes
+spec:
+  owner: platform-team
+  type: service
+
+  parameters:
+    - title: Service Details
+      required: [name, description, owner]
+      properties:
+        name:
+          title: Service name
+          type: string
+          description: Lowercase, hyphens only (e.g. churn-predictor)
+          pattern: "^[a-z][a-z0-9-]*$"
+        description:
+          title: What does this model do?
+          type: string
+        owner:
+          title: Owning team
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            allowedKinds: [Group]
+
+    - title: Model Configuration
+      required: [framework, gpu_required, risk_level]
+      properties:
+        framework:
+          title: ML Framework
+          type: string
+          enum: [pytorch, tensorflow, sklearn, xgboost, huggingface]
+        gpu_required:
+          title: Requires GPU?
+          type: boolean
+          default: false
+        gpu_instance_type:
+          title: GPU Instance Type
+          type: string
+          enum: [g4dn.xlarge, g4dn.2xlarge, p3.2xlarge]
+          description: Required if GPU is enabled. Must be from approved list.
+        risk_level:
+          title: EU AI Act Risk Level
+          type: string
+          enum: [low, medium, high]
+          description: Low = recommendation systems. High = credit scoring, hiring, healthcare.
+
+    - title: Infrastructure
+      required: [environment, replicas]
+      properties:
+        environment:
+          title: Target Environment
+          type: string
+          enum: [staging, production]
+        replicas:
+          title: Initial Replicas
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 2
+        enable_hpa:
+          title: Enable Horizontal Pod Autoscaler?
+          type: boolean
+          default: true
+
+  steps:
+    - id: fetch-template
+      name: Fetch base template
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          framework: ${{ parameters.framework }}
+          gpu_required: ${{ parameters.gpu_required }}
+          risk_level: ${{ parameters.risk_level }}
+          environment: ${{ parameters.environment }}
+          replicas: ${{ parameters.replicas }}
+
+    - id: create-repo
+      name: Create GitHub repository
+      action: publish:github
+      input:
+        allowedHosts: ["github.com"]
+        repoUrl: github.com?owner=barry-patil&repo=${{ parameters.name }}
+        defaultBranch: main
+
+    - id: register-mlflow
+      name: Register in MLflow model registry
+      action: http:backstage:request
+      input:
+        method: POST
+        path: /api/proxy/mlflow/api/2.0/mlflow/registered-models/create
+        body:
+          name: ${{ parameters.name }}
+          tags:
+            - key: team
+              value: ${{ parameters.owner }}
+            - key: risk_level
+              value: ${{ parameters.risk_level }}
+
+    - id: create-argocd-app
+      name: Register with ArgoCD
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.name }}-${{ parameters.environment }}
+        argoInstance: argocd-prod
+        namespace: ml-workloads
+        repoUrl: https://github.com/barry-patil/${{ parameters.name }}
+        path: k8s/${{ parameters.environment }}
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps['create-repo'].output.remoteUrl }}
+      - title: MLflow Model Registry
+        url: http://mlflow.internal/models/${{ parameters.name }}
+      - title: ArgoCD Application
+        url: http://argocd.internal/applications/${{ parameters.name }}-${{ parameters.environment }}
